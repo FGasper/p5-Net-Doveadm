@@ -46,11 +46,14 @@ L<Doveadm protocol|https://wiki.dovecot.org/Design/DoveadmProtocol>,
 which facilitates administrative communication with a
 L<Dovecot|http://dovecot.org> server via TCP or a local socket.
 
+Note that this is the original Doveadm protocol, not
+L<the newer, HTTP-based one|https://wiki.dovecot.org/Design/DoveadmProtocol/HTTP>.
+
 =head1 I/O
 
 This module is designed to use L<IO::Framed> as an abstraction over
 the transmission medium. It is expected that most implementors will use
-this module; however, if so desired, a compatible interface can be
+this approach; however, if so desired, a compatible interface can be
 substituted. In particular, the object must implement the C<write()>
 and C<read_until()> methods of that class.
 
@@ -67,14 +70,9 @@ reading responses to those requests.
 
 our $VERSION = '0.01-TRIAL1';
 
-use constant {
-    _flag_verbose => 'v',
-    _flag_debug => 'D',
-};
-
 our $DEBUG = 0;
 
-my $LF = "\x0a";
+use constant _LF => "\x0a";
 
 =head1 METHODS
 
@@ -120,6 +118,8 @@ Send (or enqueue the sending of) a command. %OPTS are:
 =item * C<command> - An array reference whose contents are (in order)
 the command name and all arguments to the command.
 
+=item * C<verbosity> - Optional, either 0, 1 (“verbose”), or 2 (“debug”).
+
 =back
 
 Note that, if the server handshake is not yet complete, this will
@@ -131,14 +131,15 @@ sub send {
     my ($self, %opts) = @_;
 
     my $flags = q<>;
-    if ($opts{'flags'}) {
-        for my $flag ( @{ $opts{'flags'} } ) {
-            if (my $chr = __PACKAGE__->can("_flag_$flag")) {
-                $flags .= $chr->();
-            }
-            else {
-                die "Unknown flag: “$flag”";
-            }
+    if ($opts{'verbosity'}) {
+        if ($opts{'verbosity'} eq '1') {
+            $flags = 'v';
+        }
+        elsif ($opts{'verbosity'} eq '2') {
+            $flags = 'D';
+        }
+        else {
+            die "invalid “verbosity”: “$opts{'verbosity'}”";
         }
     }
 
@@ -202,7 +203,6 @@ sub receive {
     $self->{'_sent_requests'}--;
 
     my ($line1, $line2) = delete @{$self}{'_line1', '_line2'};
-    chop( $line1, $line2 );
 
     if ($line2 ne '+') {
         die "Error: $line2 ($line1)";
@@ -235,7 +235,7 @@ sub _do_handshake {
 
     $self->{'_received_hello'} ||= $self->_read_line() or return undef;
 
-    if ($self->{'_received_hello'} eq "+$LF") {
+    if ($self->{'_received_hello'} eq '+') {
         $self->{'_handshake_done'} = 1;
 
         for my $key ( qw( username  password ) ) {
@@ -244,7 +244,7 @@ sub _do_handshake {
             }
         }
     }
-    elsif ($self->{'_received_hello'} eq "-$LF") {
+    elsif ($self->{'_received_hello'} eq '-') {
 
         if (!$self->{'_authn_sent'}) {
             $self->_send_authn();
@@ -256,7 +256,7 @@ sub _do_handshake {
 
         $self->{'_received_authn'} ||= $self->_read_line() or return undef;
 
-        if ($self->{'_received_authn'} eq "+$LF") {
+        if ($self->{'_received_authn'} eq '+') {
 
             $self->{'_handshake_done'} = 1;
         }
@@ -291,7 +291,7 @@ sub _write {
 
     $DEBUG && print "$$ doveadm enqueue send: [@$pieces_ar]\n";
 
-    return $self->{'_io'}->write( join("\t", @$pieces_ar ) . $LF );
+    return $self->{'_io'}->write( join("\t", @$pieces_ar ) . _LF() );
 }
 
 my $line_sr;
@@ -299,14 +299,15 @@ my $line_sr;
 sub _read_line {
     my ($self) = @_;
 
-    $line_sr = \$self->{'_io'}->read_until($LF);
+    $line_sr = \$self->{'_io'}->read_until(_LF());
+
+    # We never need the trailing LF.
+    chop $$line_sr if $$line_sr;
 
     if ($DEBUG) {
         if ($$line_sr) {
-            chop $$line_sr;
-
-            printf "$$ doveadm received: [$$line_sr]$LF";
-            return "$$line_sr$LF";
+            printf "$$ doveadm received: [$$line_sr]\n";
+            return $$line_sr;
         }
         else {
             printf "$$ no line yet fully received\n";
