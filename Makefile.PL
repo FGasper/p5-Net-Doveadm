@@ -7,6 +7,7 @@ WriteMakefile1(
     META_MERGE => {
         'meta-spec' => { version => 2 },
         resources => {
+            bugtracker => 'https://github.com/chansen/p5-Net-Doveadm/issues',
             repository => {
                 type => 'git',
                 url => 'git://github.com/FGasper/p5-Net-Doveadm.git',
