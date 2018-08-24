@@ -1,0 +1,11 @@
+.gitignore
+.travis.yml
+LICENSE
+MANIFEST
+Makefile.PL
+lib/Net/.Doveadm.pm.swp
+lib/Net/Doveadm.pm
+t/.basic_authn.t.swp
+t/basic.t
+t/basic_authn.t
+t/basic_blocking.t
