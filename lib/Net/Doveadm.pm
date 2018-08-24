@@ -102,6 +102,7 @@ sub new {
     my ($class, %opts) = @_;
 
     $opts{"_$_"} = delete $opts{$_} for keys %opts;
+    $opts{'_requests'} = [];
 
     return bless \%opts, $class;
 }
@@ -207,7 +208,7 @@ sub receive {
         die "Error: $line2 ($line1)";
     }
 
-    return [ split m<\t>, $line1 ];
+    return [ split m<\t>, $line1, -1 ];
 }
 
 #----------------------------------------------------------------------

@@ -5,6 +5,7 @@ use warnings;
 use autodie;
 
 use Test::More;
+use Test::Deep;
 
 use File::Temp;
 use Socket;
@@ -39,6 +40,9 @@ fork or do {
         diag "$$: reading command from client";
         my $req = readline $cln;
         diag "$$: got from client: $req";
+
+        substr( $req, 0, 0, "\t" );
+        substr( $req, -1, 0, "\t" );
 
         syswrite( $cln, $req . "+$LF" );
 
@@ -87,4 +91,10 @@ my $resp_ar;
     redo;
 }
 
-diag explain $resp_ar;
+cmp_deeply(
+    $resp_ar,
+    [ q<>, ignore(), 'some_user', 'name', 'arg1', 'arg2', q<> ],
+    'command as given, plus empty fields before/after',
+) or diag explain $resp_ar;
+
+done_testing();
