@@ -51,14 +51,14 @@ L<the newer, HTTP-based one|https://wiki.dovecot.org/Design/DoveadmProtocol/HTTP
 
 =head1 I/O
 
-This module is designed to use L<IO::Framed> as an abstraction over
-the transmission medium. It is expected that most implementors will use
-this approach; however, if so desired, a compatible interface can be
-substituted. In particular, the object must implement the C<write()>
-and C<read_until()> methods of that class.
+This module is designed, rather than to interact directly with a socket or
+other filehandle, to use L<IO::Framed> as an abstraction over
+the transmission medium. If so desired, a compatible interface can be
+substituted for L<IO::Framed>; in particular, the interface must implement
+L<IO::Framed>’s C<write()> and C<read_until()> methods.
 
 If you use L<IO::Framed>, you should B<not> enable its C<allow_empty_read()>
-mode. The Doveadm protocol is strictly RPC-oriented, which means the only
+mode. The Doveadm protocol is strictly RPC-oriented, and the only
 successful end to a session is one that the client terminates.
 
 Note that blocking and non-blocking I/O work nearly the same way;
@@ -66,9 +66,18 @@ the SYNOPSIS above demonstrates the difference. A particular feature of
 this setup is that it’s possible to send multiple successive requests before
 reading responses to those requests.
 
+=head1 ERRORS
+
+All errors that this module throws are instances of L<Net::Doveadm::X::Base>.
+At this time, further details are subject to change.
+
 =cut
 
-our $VERSION = '0.01-TRIAL1';
+#----------------------------------------------------------------------
+
+use Net::Doveadm::X;
+
+our $VERSION = '0.01';
 
 our $DEBUG = 0;
 
@@ -113,12 +122,14 @@ Send (or enqueue the sending of) a command. %OPTS are:
 
 =over
 
-=item * C<username> - The username to send in the command.
-
 =item * C<command> - An array reference whose contents are (in order)
-the command name and all arguments to the command.
+the command name and all arguments to the command. Note that some calls,
+e.g., C<mailbox list>, are “compound commands” rather than a command with
+argument.
 
-=item * C<verbosity> - Optional, either 0, 1 (“verbose”), or 2 (“debug”).
+=item * C<username> - Optional, the username to send with the command.
+
+=item * C<verbosity> - Optional, either C<1> (“verbose”) or C<2> (“debug”).
 
 =back
 
@@ -139,11 +150,15 @@ sub send {
             $flags = 'D';
         }
         else {
-            die "invalid “verbosity”: “$opts{'verbosity'}”";
+            die Net::Doveadm::X->create('Generic', "Invalid “verbosity”: “$opts{'verbosity'}”");
         }
     }
 
     _validate_command_pieces( $opts{'username'}, $opts{'command'} );
+
+    if ( !defined $opts{'username'} ) {
+        $opts{'username'} = q<>;
+    }
 
     push @{ $self->{'_requests'} }, [ $flags, $opts{'username'}, @{ $opts{'command'} } ];
 
@@ -161,7 +176,7 @@ sub _validate_command_pieces {
 
     for my $piece ($username, @$command_ar) {
         if ($piece =~ tr<\t\x0a><>) {
-            die "Invalid string in command: “$piece”";
+            die Net::Doveadm::X->create('Generic', "Invalid string in command: “$piece”");
         }
     }
 
@@ -193,7 +208,7 @@ sub receive {
     }
 
     if ( !@{ $self->{'_requests'} } && !$self->{'_sent_requests'} ) {
-        die "No requests pending!";
+        die Net::Doveadm::X->create('Generic', "No requests pending!");
     }
 
     $self->{'_line1'} ||= $self->_read_line() or return undef;
@@ -205,7 +220,7 @@ sub receive {
     my ($line1, $line2) = delete @{$self}{'_line1', '_line2'};
 
     if ($line2 ne '+') {
-        die "Error: $line2 ($line1)";
+        die Net::Doveadm::X->create('Response', "Error: $line2 ($line1)");
     }
 
     return [ split m<\t>, $line1, -1 ];
@@ -261,7 +276,7 @@ sub _do_handshake {
             $self->{'_handshake_done'} = 1;
         }
         else {
-            die "Failed authn: “$self->{'_received_authn'}”";
+            die Net::Doveadm::X->create('Authn', "Failed authn: “$self->{'_received_authn'}”");
         }
     }
 
@@ -273,7 +288,7 @@ sub _send_authn {
 
     for my $key ( qw( username  password ) ) {
         if (!length $self->{"_$key"}) {
-            die "“$key” not submitted, but server says needed!";
+            die Net::Doveadm::X->create('Generic', "“$key” not submitted, but server says needed!");
         }
     }
 
