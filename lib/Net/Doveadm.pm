@@ -356,6 +356,9 @@ sub _read_line {
 sub _throw_away_bytes {
     my ($self) = @_;
 
+    # Ideally we’d just read 3 bytes, but IO::Framed doesn’t like
+    # alternating read() and read_until(). (Worth fixing?)
+
     my $line1 = $self->_read_line();
     return undef if !defined $line1;
 
