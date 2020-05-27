@@ -177,7 +177,7 @@ sub _validate_command_pieces {
     my ($username, $command_ar) = @_;
 
     for my $piece ($username, @$command_ar) {
-        if ($piece =~ tr<\t\x0a><>) {
+        if ($piece && $piece =~ tr<\t\x0a><>) {
             die Net::Doveadm::X->create('Generic', "Invalid string in command: “$piece”");
         }
     }
@@ -226,10 +226,15 @@ sub receive {
 
     my ($line1, $line2) = delete @{$self}{'_line1', '_line2'};
 
+    # We never need the trailing LF.
+    chop ($line1, $line2);
+
     if ($line2 ne '+') {
         if (length $line2) {
             $self->{'_discard_extra_lines'} = 1;
         }
+
+        $line2 =~ s<\A-><>;
 
         die Net::Doveadm::X->create(
             'Response', "Error: $line2 ($line1)",
@@ -246,7 +251,9 @@ sub receive {
 sub _flush_request_queue {
     my ($self) = @_;
 
-    while ($self->_write($self->{'_requests'}[0])) {
+    while ($self->{'_requests'}[0]) {
+        $self->_write($self->{'_requests'}[0]);
+
         shift @{ $self->{'_requests'} };
         $self->{'_sent_requests'}++;
     }
@@ -321,7 +328,9 @@ sub _write {
 
     $DEBUG && print "$$ doveadm enqueue send: [@$pieces_ar]\n";
 
-    return $self->{'_io'}->write( join("\t", @$pieces_ar ) . _LF() );
+    $self->{'_io'}->write( join("\t", @$pieces_ar ) . _LF() );
+
+    return 1;
 }
 
 my $line_sr;
@@ -330,9 +339,6 @@ sub _read_line {
     my ($self) = @_;
 
     $line_sr = \$self->{'_io'}->read_until(_LF());
-
-    # We never need the trailing LF.
-    chop $$line_sr if $$line_sr;
 
     if ($DEBUG) {
         if ($$line_sr) {
@@ -350,9 +356,13 @@ sub _read_line {
 sub _throw_away_bytes {
     my ($self) = @_;
 
-    my $got = $self->{'_io'}->read(length $_EXTRA_ON_NONEMPTY_ERROR);
+    my $line1 = $self->_read_line();
+    return undef if !defined $line1;
 
-    return undef if !$got;
+    my $line2 = $self->_read_line();
+    return undef if !defined $line2;
+
+    my $got = $line1 . $line2;
 
     if ($got ne $_EXTRA_ON_NONEMPTY_ERROR) {
         die Net::Doveadm::X->create('Generic', sprintf('PANIC: doveadm protocol change?? “Extra” error bytes (%v.02x) mismatch expected (%v.02x).', $got, $_EXTRA_ON_NONEMPTY_ERROR));
