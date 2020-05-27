@@ -83,6 +83,8 @@ our $DEBUG = 0;
 
 use constant _LF => "\x0a";
 
+my $_EXTRA_ON_NONEMPTY_ERROR = _LF . '-' . _LF;
+
 =head1 METHODS
 
 =head2 I<CLASS->new( %OPTS )
@@ -211,6 +213,11 @@ sub receive {
         die Net::Doveadm::X->create('Generic', "No requests pending!");
     }
 
+    if ($self->{'_discard_extra_lines'}) {
+        $self->_throw_away_bytes() or return undef;
+        $self->{'_discard_extra_lines'} = 0;
+    }
+
     $self->{'_line1'} ||= $self->_read_line() or return undef;
 
     $self->{'_line2'} ||= $self->_read_line() or return undef;
@@ -220,7 +227,15 @@ sub receive {
     my ($line1, $line2) = delete @{$self}{'_line1', '_line2'};
 
     if ($line2 ne '+') {
-        die Net::Doveadm::X->create('Response', "Error: $line2 ($line1)");
+        if (length $line2) {
+            $self->{'_discard_extra_lines'} = 1;
+        }
+
+        die Net::Doveadm::X->create(
+            'Response', "Error: $line2 ($line1)",
+            message => $line1,
+            status => $line2,
+        );
     }
 
     return [ split m<\t>, $line1, -1 ];
@@ -330,6 +345,20 @@ sub _read_line {
     }
 
     return $$line_sr;
+}
+
+sub _throw_away_bytes {
+    my ($self) = @_;
+
+    my $got = $self->{'_io'}->read(length $_EXTRA_ON_NONEMPTY_ERROR);
+
+    return undef if !$got;
+
+    if ($got ne $_EXTRA_ON_NONEMPTY_ERROR) {
+        die Net::Doveadm::X->create('Generic', sprintf('PANIC: doveadm protocol change?? “Extra” error bytes (%v.02x) mismatch expected (%v.02x).', $got, $_EXTRA_ON_NONEMPTY_ERROR));
+    }
+
+    return 1;
 }
 
 #----------------------------------------------------------------------
