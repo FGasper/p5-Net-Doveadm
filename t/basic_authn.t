@@ -38,16 +38,20 @@ fork or do {
         my $line = readline $cln;
         diag "$$ got: $line";
 
+        # Client has to authenticate
         syswrite( $cln, "-$LF" );
 
         my $authn = readline $cln;
         diag "$$: got authn: $authn\n";
 
         if ($authn ne "PLAIN\tAGRvdmVhZG0Ac2VjcmV0$LF") {
+
+            # Wrong password
             syswrite( $cln, "-$LF" );
             exit;
         }
 
+        # Right password
         syswrite( $cln, "+$LF" );
 
         diag "$$: reading command from client";
@@ -64,8 +68,7 @@ fork or do {
     exit( $ok ? 0 : 1 );
 };
 
-use_ok('Net::Doveadm');
-
+use Net::Doveadm;
 $Net::Doveadm::DEBUG = 1;
 
 Time::HiRes::sleep(0.1) while !-e "$dir/listening";

@@ -218,7 +218,8 @@ sub receive {
         $self->{'_discard_extra_lines'} = 0;
     }
 
-    $self->{'_line1'} ||= $self->_read_line() or return undef;
+    $self->{'_line1'} = $self->_read_line() if !defined $self->{'_line1'};
+    return undef if !defined $self->{'_line1'};
 
     $self->{'_line2'} ||= $self->_read_line() or return undef;
 
@@ -226,11 +227,10 @@ sub receive {
 
     my ($line1, $line2) = delete @{$self}{'_line1', '_line2'};
 
-    # We never need the trailing LF.
-    chop ($line1, $line2);
-
     if ($line2 ne '+') {
         if (length $line2) {
+            $self->_debug("got error msg ($line2); expect extra empty failure reponse");
+
             $self->{'_discard_extra_lines'} = 1;
         }
 
@@ -273,6 +273,8 @@ sub _do_handshake {
     $self->{'_received_hello'} ||= $self->_read_line() or return undef;
 
     if ($self->{'_received_hello'} eq '+') {
+        $self->_debug("handshake is done");
+
         $self->{'_handshake_done'} = 1;
 
         for my $key ( qw( username  password ) ) {
@@ -282,6 +284,7 @@ sub _do_handshake {
         }
     }
     elsif ($self->{'_received_hello'} eq '-') {
+        $self->_debug("handshake requires authn");
 
         if (!$self->{'_authn_sent'}) {
             $self->_send_authn();
@@ -294,12 +297,16 @@ sub _do_handshake {
         $self->{'_received_authn'} ||= $self->_read_line() or return undef;
 
         if ($self->{'_received_authn'} eq '+') {
+            $self->_debug("handshake done");
 
             $self->{'_handshake_done'} = 1;
         }
         else {
             die Net::Doveadm::X->create('Authn', "Failed authn: “$self->{'_received_authn'}”");
         }
+    }
+    else {
+        die Net::Doveadm::X->create('Generic', "Unexpected authn response: [$self->{'_received_hello'}]");
     }
 
     return 1;
@@ -326,11 +333,19 @@ sub _send_authn {
 sub _write {
     my ($self, $pieces_ar) = @_;
 
-    $DEBUG && print "$$ doveadm enqueue send: [@$pieces_ar]\n";
+    $self->_debug("enqueue send: [@$pieces_ar]");
 
     $self->{'_io'}->write( join("\t", @$pieces_ar ) . _LF() );
 
     return 1;
+}
+
+sub _debug {
+    my ($self, $msg) = @_;
+
+    print "$$ " . ref($self) . " $msg$/" if $DEBUG;
+
+    return;
 }
 
 my $line_sr;
@@ -340,15 +355,10 @@ sub _read_line {
 
     $line_sr = \$self->{'_io'}->read_until(_LF());
 
-    if ($DEBUG) {
-        if ($$line_sr) {
-            printf "$$ doveadm received: [$$line_sr]\n";
-            return $$line_sr;
-        }
-        else {
-            printf "$$ no line yet fully received\n";
-        }
-    }
+    # We never need the trailing LF.
+    chop ($$line_sr) if $$line_sr;
+
+    $self->_debug( defined $$line_sr ? "received: [$$line_sr]" : "no line yet fully received" );
 
     return $$line_sr;
 }
@@ -364,6 +374,8 @@ sub _throw_away_bytes {
 
     my $line2 = $self->_read_line();
     return undef if !defined $line2;
+
+    $_ .= _LF for ($line1, $line2);
 
     my $got = $line1 . $line2;
 
